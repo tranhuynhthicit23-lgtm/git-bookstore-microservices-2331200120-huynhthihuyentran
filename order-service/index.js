@@ -11,18 +11,46 @@ connectToBroker().catch(err => console.error('Broker init error', err));
 
 // Create order
 app.post('/', async (req, res) => {
-  // TODO: Implement order creation with the following steps:
-  // 1. Validate request body:
-  //    - Check productId exists
-  //    - Check quantity is positive
-  // 2. Call product service to verify product exists:
-  //    - Use axios to GET product details
-  //    - Handle timeouts and errors
-  // 3. Insert order into database:
-  //    - Add to orders table with PENDING status
-  // 4. Publish order.created event to message broker:
-  //    - Include order id, product details, quantity
-  // 5. Return success response with order details
+  try {
+    const { productId, quantity } = req.body;
+    // 1. Validate request body
+    if (!productId || typeof quantity !== 'number' || quantity <= 0) {
+      return res.status(400).json({ error: 'productId and positive quantity required' });
+    }
+
+    // 2. Call product service to verify product exists
+    let product;
+    try {
+      const response = await axios.get(`http://product-service:8002/${productId}`, { timeout: 2000 });
+      product = response.data;
+    } catch (err) {
+      console.error('Product verification error:', err.code || err.message);
+      return res.status(404).json({ error: 'Product not found or service unavailable' });
+    }
+
+    // 3. Insert order into database
+    const r = await db.query(
+      'INSERT INTO orders (product_id, quantity, status) VALUES ($1,$2,$3) RETURNING *',
+      [productId, quantity, 'PENDING']
+    );
+    const order = r.rows[0];
+
+    // 4. Publish order.created event to message broker
+    const eventMsg = {
+      event: 'order.created',
+      orderId: order.id,
+      product: { id: product.id, title: product.title, author: product.author },
+      quantity: order.quantity
+    };
+    await publishMessage('order-events', eventMsg);
+    console.log('Published order.created event:', eventMsg);
+
+    // 5. Return success response
+    res.status(201).json(order);
+  } catch (err) {
+    console.error('Create order error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // List orders
