@@ -1,0 +1,97 @@
+
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+    networks: [bookstore-net]
+
+  frontend:
+    build: ./frontend
+    environment:
+      - API_BASE=http://localhost:8000
+    depends_on:
+      - api-gateway
+    networks: [bookstore-net]
+
+  user-service:
+    build: ./user-service
+    depends_on:
+      - user-db
+    networks: [bookstore-net]
+
+  product-service:
+    build: ./product-service
+    depends_on:
+      - product-db
+    environment:
+      - PGHOST=product-db
+      - PGUSER=postgres
+      - PGPASSWORD=postgres
+      - PGDATABASE=products
+      - PGPORT=5432
+    networks: [bookstore-net]
+
+  order-service:
+    build: ./order-service
+    depends_on:
+      - order-db
+      - message-broker
+      - product-service
+    environment:
+      - PGHOST=order-db
+      - PGUSER=postgres
+      - PGPASSWORD=postgres
+      - PGDATABASE=orders
+      - PGPORT=5432
+      - RABBITMQ_URL=amqp://message-broker:5672
+      - PRODUCT_SERVICE_URL=http://product-service:8002
+    networks: [bookstore-net]
+
+  # Datastores
+  user-db:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - user-data:/data/db
+    networks: [bookstore-net]
+
+  product-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=products
+    volumes:
+      - product-data:/var/lib/postgresql/data
+    networks: [bookstore-net]
+
+  order-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=orders
+    volumes:
+      - order-data:/var/lib/postgresql/data
+    networks: [bookstore-net]
+
+  message-broker:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks: [bookstore-net]
+
+volumes:
+  user-data:
+  product-data:
+  order-data:
+
+networks:
+  bookstore-net:
